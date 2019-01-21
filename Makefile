@@ -27,7 +27,14 @@ INFO := @bash -c '\
 	echo "=> $$1"; \
 	printf $(NO_COLOR)' VALUE 
 
+INSPECT := $$(docker-compose -p $$1 -f $$2 ps -q $$3 | xargs -I ARGS docker inspect -f "{{ .State.ExitCode }}" ARGS)
 
+# $1 - project name , $2 docker-compose file #3 - name of the service  => container Id
+# docker inspect containerId - filter exitcode => exit code
+
+CHECK := @bash -c '\
+  if [[ $(INSPECT) -ne 0 ]]; \
+  then exit $(INSPECT); fi' VALUE
 
 .PHONY: test build release clean 
 # if we don't have .PHONY declaration, it will treat test, build and release as files and check if they are up to date
@@ -47,16 +54,18 @@ test:
 	${INFO} "Building Images..."
 	@docker-compose  -p $(DEV_PROJECT)  -f $(DEV_COMPOSE_FILE) build 
 	${INFO} "Ensuring database is ready..."
-	@docker-compose  -p $(DEV_PROJECT)  -f $(DEV_COMPOSE_FILE) up agent 
+	@docker-compose  -p $(DEV_PROJECT)  -f $(DEV_COMPOSE_FILE) run --rm agent 
 	${INFO} "Running tests..."
 	docker-compose  -p $(DEV_PROJECT)  -f $(DEV_COMPOSE_FILE) up test 
 	${INFO} "Copying reports..."
 	docker cp $$(docker-compose -p $(DEV_PROJECT) -f $(DEV_COMPOSE_FILE) ps -q test):/reports/. reports 
 	${INFO} "Removing orphaned images.."
 	@docker images -q -f dangling=true -f label=application=$(REPO_NAME) | xargs -I ARGS docker rmi -f ARGS  
+	${CHECK} $(DEV_PROJECT) $(DEV_COMPOSE_FILE) test
 build:
 	${INFO} "Building application artifacts"
 	@docker-compose  -p $(DEV_PROJECT)   -f $(DEV_COMPOSE_FILE) up builder
+	${CHECK} $(DEV_PROJECT) $(DEV_COMPOSE_FILE) builder 
 	${INFO} "Copying artifacts to target folder..."
 	# e.g. docker cp CONTAINER_ID:/wheelhouse/. target
 	docker cp $$(docker-compose -p $(DEV_PROJECT) -f $(DEV_COMPOSE_FILE) ps -q builder):/wheelhouse/. target
@@ -68,7 +77,7 @@ release:
 	${INFO} "Building release images"
 	@docker-compose  -p $(REL_PROJECT)  -f $(REL_COMPOSE_FILE)  build 
 	${INFO} "Ensure db is ready.."
-	@docker-compose  -p $(REL_PROJECT)  -f $(REL_COMPOSE_FILE)  up agent 
+	@docker-compose  -p $(REL_PROJECT)  -f $(REL_COMPOSE_FILE)  run --rm agent 
 	${INFO} "Collecting static files..."
 	@docker-compose  -p $(REL_PROJECT)  -f $(REL_COMPOSE_FILE)  run --rm app manage.py collectstatic --no-input
 	${INFO} "Running db migration"
@@ -77,5 +86,6 @@ release:
 	@docker-compose  -p $(REL_PROJECT)  -f $(REL_COMPOSE_FILE)  up test
 	${INFO} "Copying reports..."
 	docker cp $$(docker-compose -p $(REL_PROJECT) -f $(REL_COMPOSE_FILE) ps -q test):/reports/. reports 
+	${CHECK} $(REL_PROJECT) $(REL_COMPOSE_FILE) test
 	${INFO} "Remove dangling images..."
 	docker images -q -f dangling=true -f label=application=$(REPO_NAME) | xargs -I ARGS docker rmi -f ARGS  
