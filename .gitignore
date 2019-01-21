@@ -8,7 +8,7 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-build/
+builder/
 develop-eggs/
 dist/
 downloads/
@@ -115,3 +115,7 @@ venv.bak/
 02.Django-RestApi/.idea/modules.xml
 02.Django-RestApi/.idea/vcs.xml
 .vscode/settings.json
+
+
+reports/
+target/
